@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	autoscalingv1 "github.com/openshift/vertical-pod-autoscaler-operator/api/v1"
+	k8sautoscalingv1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -53,6 +54,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(autoscalingv1.AddToScheme(scheme))
+	utilruntime.Must(k8sautoscalingv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 

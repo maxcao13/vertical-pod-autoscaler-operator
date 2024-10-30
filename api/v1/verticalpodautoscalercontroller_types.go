@@ -99,6 +99,9 @@ type VerticalPodAutoscalerControllerSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Minimum Replicas",xDescriptors={"urn:alm:descriptor:com.tectonic.ui:number"}
 	// +kubebuilder:validation:Minimum=1
 	MinReplicas *int32 `json:"minReplicas,omitempty"`
+
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Self Scaling",xDescriptors={"urn:alm:descriptor:com.tectonic.ui:boolean"}
+	SelfScaling *bool `json:"selfScaling,omitempty"`
 	//
 	// +optional
 	DeploymentOverrides DeploymentOverrides `json:"deploymentOverrides"`

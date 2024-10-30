@@ -33,6 +33,7 @@ spec:
       containers:
       - name: vertical-pod-autoscaler-operator
         image: quay.io/openshift/origin-vertical-pod-autoscaler-operator:latest
+        imagePullPolicy: Always
         command:
         - /manager
         args:

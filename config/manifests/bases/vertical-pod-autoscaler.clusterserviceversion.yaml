@@ -183,6 +183,10 @@ spec:
         path: safetyMarginFraction
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:number
+      - displayName: Self Scaling
+        path: selfScaling
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:boolean
       version: v1
   description: An operator to run the OpenShift Vertical Pod Autoscaler. Vertical
     Pod Autoscaler (VPA) can be configured to monitor a workload's resource utilization,

@@ -24,6 +24,12 @@ rules:
   verbs:
   - '*'
 - apiGroups:
+  - autoscaling.k8s.io
+  resources:
+  - verticalpodautoscalers
+  verbs:
+  - '*'
+- apiGroups:
   - autoscaling.openshift.io
   resources:
   - '*'

@@ -202,6 +202,11 @@ func (in *VerticalPodAutoscalerControllerSpec) DeepCopyInto(out *VerticalPodAuto
 		*out = new(int32)
 		**out = **in
 	}
+	if in.SelfScaling != nil {
+		in, out := &in.SelfScaling, &out.SelfScaling
+		*out = new(bool)
+		**out = **in
+	}
 	in.DeploymentOverrides.DeepCopyInto(&out.DeploymentOverrides)
 }
 

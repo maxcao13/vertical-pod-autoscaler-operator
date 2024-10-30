@@ -11,6 +11,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	k8s.io/api v0.30.3
 	k8s.io/apimachinery v0.30.3
+	k8s.io/autoscaler/vertical-pod-autoscaler v1.2.0
 	k8s.io/client-go v0.30.3
 	k8s.io/klog v1.0.0
 	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8

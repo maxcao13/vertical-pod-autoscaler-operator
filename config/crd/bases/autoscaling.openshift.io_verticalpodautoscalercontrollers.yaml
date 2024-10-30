@@ -431,6 +431,8 @@ spec:
               safetyMarginFraction:
                 minimum: 0
                 type: number
+              selfScaling:
+                type: boolean
             type: object
           status:
             description: VerticalPodAutoscalerControllerStatus defines the observed

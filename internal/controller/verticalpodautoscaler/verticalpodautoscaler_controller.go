@@ -48,7 +48,15 @@ import (
 	"github.com/go-logr/logr"
 	autoscalingv1 "github.com/openshift/vertical-pod-autoscaler-operator/api/v1"
 	"github.com/openshift/vertical-pod-autoscaler-operator/internal/util"
+	autoscaling "k8s.io/api/autoscaling/v1"
+	k8sautoscalingv1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 )
+
+type AppName string
+
+func (a AppName) String() string {
+	return string(a)
+}
 
 const (
 	// ControllerName The hard-coded name of the VPA controller
@@ -62,8 +70,14 @@ const (
 	// CACertConfigMapName The hard-coded name of the configmap containing the CA certs for the VPA webhook
 	CACertConfigMapName = "vpa-tls-ca-certs"
 
+	// Operator The hard-coded name of the VPA operator
+	OperatorName AppName = "vertical-pod-autoscaler-operator"
+	// RecommenderAppName The hard-coded name of the VPA recommender
+	RecommenderAppName AppName = "vpa-recommender"
+	// UpdaterAppName The hard-coded name of the VPA updater
+	UpdaterAppName AppName = "vpa-updater"
 	// AdmissionControllerAppName The hard-coded name of the VPA admission controller
-	AdmissionControllerAppName = "vpa-admission-controller"
+	AdmissionControllerAppName AppName = "vpa-admission-controller"
 	// DefaultSafetyMarginFraction Fraction of usage added as the safety margin to the recommended request. This default
 	// matches the upstream default
 	DefaultSafetyMarginFraction = float64(0.15)
@@ -81,7 +95,7 @@ const (
 type ControllerParams struct {
 	Command           string
 	NameMethod        func(r *VerticalPodAutoscalerControllerReconciler, vpa *autoscalingv1.VerticalPodAutoscalerController) types.NamespacedName
-	AppName           string
+	AppName           AppName
 	ServiceAccount    string
 	PriorityClassName string
 	GetArgs           func(vpa *autoscalingv1.VerticalPodAutoscalerController, cfg *Config) []string
@@ -93,7 +107,7 @@ var controllerParams = [...]ControllerParams{
 	{
 		"recommender",
 		(*VerticalPodAutoscalerControllerReconciler).RecommenderName,
-		"vpa-recommender",
+		RecommenderAppName,
 		"vpa-recommender",
 		"system-cluster-critical",
 		RecommenderArgs,
@@ -103,7 +117,7 @@ var controllerParams = [...]ControllerParams{
 	{
 		"updater",
 		(*VerticalPodAutoscalerControllerReconciler).UpdaterName,
-		"vpa-updater",
+		UpdaterAppName,
 		"vpa-updater",
 		"system-cluster-critical",
 		UpdaterArgs,
@@ -155,6 +169,7 @@ type VerticalPodAutoscalerControllerReconciler struct {
 // +kubebuilder:rbac:groups=autoscaling.openshift.io,resources=*,verbs=*
 // +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets;replicasets;statefulsets,verbs=*
 // +kubebuilder:rbac:groups="",resources=pods;events;configmaps;services;secrets,verbs=*
+// +kubebuilder:rbac:groups=autoscaling.k8s.io,resources=verticalpodautoscalers,verbs=*
 
 func (r *VerticalPodAutoscalerControllerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLogger := r.Log.WithValues("Request.Namespace", req.Namespace, "Request.Name", req.Name)
@@ -299,6 +314,45 @@ func (r *VerticalPodAutoscalerControllerReconciler) Reconcile(ctx context.Contex
 			msg := fmt.Sprintf("Updated VerticalPodAutoscalerController ConfigMap: %s", CACertConfigMapName)
 			r.Recorder.Eventf(vpaRef, corev1.EventTypeNormal, "SuccessfulUpdate", msg)
 			klog.Info(msg)
+		}
+	}
+
+	// reconcile self scaling manifests
+	if vpa.Spec.SelfScaling != nil && *vpa.Spec.SelfScaling {
+		vpas := r.SelfScalingVPAs(vpa)
+		for _, vpa := range vpas {
+			existingVPA := &k8sautoscalingv1.VerticalPodAutoscaler{}
+			err := r.Get(context.TODO(), types.NamespacedName{Name: vpa.Name, Namespace: vpa.Namespace}, existingVPA)
+			if err != nil {
+				if errors.IsNotFound(err) {
+					if err := r.Create(context.Background(), vpa); err != nil {
+						errMsg := fmt.Sprintf("Error creating self scaling VPA: %v", err)
+						r.Recorder.Event(vpaRef, corev1.EventTypeWarning, "FailedCreate", errMsg)
+						klog.Error(errMsg)
+
+						return reconcile.Result{}, err
+					}
+				} else {
+					errMsg := fmt.Sprintf("Error getting self scaling VPA: %v", err)
+					r.Recorder.Event(vpaRef, corev1.EventTypeWarning, "FailedGet", errMsg)
+					klog.Error(errMsg)
+
+					return reconcile.Result{}, err
+				}
+			} else {
+				if update, err := r.UpdateControllerVPA(vpa, existingVPA); err != nil {
+					errMsg := fmt.Sprintf("Error updating self scaling VPA: %v", err)
+					r.Recorder.Event(vpaRef, corev1.EventTypeWarning, "FailedUpdate", errMsg)
+					klog.Error(errMsg)
+
+					return reconcile.Result{}, err
+				} else {
+					msg := fmt.Sprintf("Updated self scaling VPA: %s", vpa.Name)
+					r.Recorder.Eventf(vpaRef, corev1.EventTypeNormal, "SuccessfulUpdate", msg)
+					klog.Info(msg)
+				}
+			}
+
 		}
 	}
 
@@ -506,6 +560,23 @@ func (r *VerticalPodAutoscalerControllerReconciler) UpdateCAConfigMap(vpa *autos
 	return err == nil, err
 }
 
+// UpdateControllerVPA will retrieve the VerticalPodAutoscaler for the given VerticalPodAutoscalerController
+// custom resource instance and update it to match the expected spec if needed.
+func (r *VerticalPodAutoscalerControllerReconciler) UpdateControllerVPA(vpa *autoscalingv1.VerticalPodAutoscalerController, controller AppName, existing *k8sautoscalingv1.VerticalPodAutoscaler) (updated bool, err error) {
+	// already assumes the Controller VPA exists
+	merged := existing.DeepCopy()
+	expected := r.ControllerVPA(vpa, controller)
+	// Only comparing updatePolicy and targetRef
+	merged.Spec.UpdatePolicy = expected.Spec.UpdatePolicy
+	merged.Spec.TargetRef = expected.Spec.TargetRef
+	if equality.Semantic.DeepEqual(existing, merged) {
+		return false, nil
+	}
+
+	err = r.Update(context.TODO(), merged)
+	return err == nil, err
+}
+
 // RecommenderName returns the expected NamespacedName for the deployment
 // belonging to the given VerticalPodAutoscalerController.
 func (r *VerticalPodAutoscalerControllerReconciler) RecommenderName(vpa *autoscalingv1.VerticalPodAutoscalerController) types.NamespacedName {
@@ -600,7 +671,7 @@ func (r *VerticalPodAutoscalerControllerReconciler) AutoscalerDeployment(vpa *au
 	namespacedName := params.NameMethod(r, vpa)
 	labels := map[string]string{
 		"vertical-pod-autoscaler": vpa.Name,
-		"app":                     params.AppName,
+		"app":                     params.AppName.String(),
 	}
 
 	annotations := map[string]string{
@@ -827,6 +898,15 @@ func (r *VerticalPodAutoscalerControllerReconciler) AdmissionControllerPodSpec(v
 		spec.Tolerations = vpa.Spec.DeploymentOverrides.Admission.Tolerations
 	}
 
+	spec.Containers[0].Env = append(spec.Containers[0].Env, corev1.EnvVar{
+		Name: "POD_NAME",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.name",
+			},
+		},
+	})
+
 	spec.Containers[0].Ports = append(spec.Containers[0].Ports, corev1.ContainerPort{
 		ContainerPort: 8000,
 		Protocol:      corev1.ProtocolTCP,
@@ -886,7 +966,7 @@ func (r *VerticalPodAutoscalerControllerReconciler) WebhookService(vpa *autoscal
 				},
 			},
 			Selector: map[string]string{
-				"app": AdmissionControllerAppName,
+				"app": AdmissionControllerAppName.String(),
 			},
 		},
 	}
@@ -911,6 +991,70 @@ func (r *VerticalPodAutoscalerControllerReconciler) CAConfigMap(vpa *autoscaling
 
 	r.UpdateConfigMapAnnotations(cm)
 	return cm
+}
+
+// ControllerVPA returns the expected VerticalPodAutoscaler custom resource for the given
+// VerticalPodAutoscalerController.
+func (r *VerticalPodAutoscalerControllerReconciler) ControllerVPA(vpa *autoscalingv1.VerticalPodAutoscalerController, controller AppName) *k8sautoscalingv1.VerticalPodAutoscaler {
+	var name string
+	switch controller {
+	case OperatorName:
+		name = string(OperatorName)
+	case RecommenderAppName:
+		name = r.RecommenderName(vpa).Name
+	case UpdaterAppName:
+		name = r.UpdaterName(vpa).Name
+	case AdmissionControllerAppName:
+		name = r.AdmissionPluginName(vpa).Name
+	default:
+		klog.Errorf("Unknown controller name: %s", controller)
+		return nil
+	}
+
+	return &k8sautoscalingv1.VerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: r.Config.Namespace,
+		},
+		Spec: k8sautoscalingv1.VerticalPodAutoscalerSpec{
+			TargetRef: &autoscaling.CrossVersionObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       name,
+			},
+			UpdatePolicy: &k8sautoscalingv1.PodUpdatePolicy{
+				UpdateMode: func() *k8sautoscalingv1.UpdateMode {
+					mode := k8sautoscalingv1.UpdateModeAuto
+					return &mode
+				}(),
+				MinReplicas: ptr.To(int32(1)),
+			},
+		},
+	}
+
+}
+
+// SelfScalingVPAs returns the expected VerticalPodAutoscaler custom resources for the operator, admission controller, recommender, and updater.
+func (r *VerticalPodAutoscalerControllerReconciler) SelfScalingVPAs(vpa *autoscalingv1.VerticalPodAutoscalerController) []*k8sautoscalingv1.VerticalPodAutoscaler {
+	var vpas []*k8sautoscalingv1.VerticalPodAutoscaler
+
+	vpas = append(vpas, r.ControllerVPA(vpa, OperatorName))
+	if r.RecommenderEnabled(vpa) {
+		if recommenderVPA := r.ControllerVPA(vpa, RecommenderAppName); recommenderVPA != nil {
+			vpas = append(vpas, recommenderVPA)
+		}
+	}
+	if r.UpdaterEnabled(vpa) {
+		if updaterVPA := r.ControllerVPA(vpa, UpdaterAppName); updaterVPA != nil {
+			vpas = append(vpas, updaterVPA)
+		}
+	}
+	if r.AdmissionPluginEnabled(vpa) {
+		if admissionVPA := r.ControllerVPA(vpa, AdmissionControllerAppName); admissionVPA != nil {
+			vpas = append(vpas, admissionVPA)
+		}
+	}
+	return vpas
 }
 
 // objectReference returns a reference to the given object, but will set the
