@@ -27,7 +27,7 @@ type DeploymentOverrides struct {
 
 	// admission is the deployment overrides for the VPA's admission container
 	// +optional
-	Admission DeploymentOverride `json:"admission"`
+	Admission AdmissionDeploymentOverride `json:"admission"`
 	// recommender is the deployment overrides for the VPA's recommender container
 	// +optional
 	Recommender DeploymentOverride `json:"recommender"`
@@ -60,6 +60,16 @@ type DeploymentOverride struct {
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
+// AdmissionDeploymentOverride defines overrides for the VPA's admission container
+type AdmissionDeploymentOverride struct {
+	DeploymentOverride `json:",inline"`
+
+	// Replicas is the number of desired replicas for the Admission deployment
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Replicas",xDescriptors={"urn:alm:descriptor:com.tectonic.ui:number"}
+	// +optional
+	Replicas *int32 `json:"replicas,omitempty"`
+}
+
 // ContainerOverride defines fields that can be overridden for a given container
 type ContainerOverride struct {
 	// TODO(jkyros): maybe this eventually ends up being the whole corev1.Container, so try
@@ -88,7 +98,7 @@ type VerticalPodAutoscalerControllerSpec struct {
 	RecommendationOnly *bool    `json:"recommendationOnly,omitempty"`
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Minimum Replicas",xDescriptors={"urn:alm:descriptor:com.tectonic.ui:number"}
 	// +kubebuilder:validation:Minimum=1
-	MinReplicas *int64 `json:"minReplicas,omitempty"`
+	MinReplicas *int32 `json:"minReplicas,omitempty"`
 	//
 	// +optional
 	DeploymentOverrides DeploymentOverrides `json:"deploymentOverrides"`

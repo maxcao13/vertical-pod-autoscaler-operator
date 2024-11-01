@@ -55,7 +55,7 @@ metadata:
     categories: OpenShift Optional
     certifiedLevel: Primed
     containerImage: quay.io/openshift/origin-vertical-pod-autoscaler-operator:4.18.0
-    createdAt: "2024-09-25T02:20:09Z"
+    createdAt: "2024-11-01T00:27:21Z"
     description: An operator to run the OpenShift Vertical Pod Autoscaler. Vertical
       Pod Autoscaler (VPA) can be configured to monitor a workload's resource utilization,
       and then adjust its CPU and memory limits by updating the pod (future) or restarting
@@ -125,6 +125,12 @@ spec:
         name: ""
         version: v1
       specDescriptors:
+      - description: Replicas is the number of desired replicas for the Admission
+          deployment
+        displayName: Replicas
+        path: deploymentOverrides.admission.replicas
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:number
       - displayName: Minimum Replicas
         path: minReplicas
         x-descriptors:

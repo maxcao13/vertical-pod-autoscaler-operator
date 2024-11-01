@@ -74,7 +74,7 @@ const (
 	// DefaultRecommendationOnly By default, the VPA will not run in recommendation-only mode. The Updater and Admission plugin will run
 	DefaultRecommendationOnly = false
 	// DefaultMinReplicas By default, the updater will not kill pods if they are the only replica
-	DefaultMinReplicas = int64(2)
+	DefaultMinReplicas = int32(2)
 )
 
 // ControllerParams Parameters for running each of the 3 VPA operands
@@ -148,12 +148,14 @@ type VerticalPodAutoscalerControllerReconciler struct {
 	Config   *Config
 }
 
+// Make sure there is a new line after these markers: https://sdk.operatorframework.io/docs/faqs/#after-running-make-manifests-rbac-permissions-are-not-updated-in-config
 // +kubebuilder:rbac:groups=autoscaling.openshift.io,resources=verticalpodautoscalercontrollers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=autoscaling.openshift.io,resources=verticalpodautoscalercontrollers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=autoscaling.openshift.io,resources=verticalpodautoscalercontrollers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=autoscaling.openshift.io,resources=*,verbs=*
 // +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets;replicasets;statefulsets,verbs=*
 // +kubebuilder:rbac:groups="",resources=pods;events;configmaps;services;secrets,verbs=*
+
 func (r *VerticalPodAutoscalerControllerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLogger := r.Log.WithValues("Request.Namespace", req.Namespace, "Request.Name", req.Name)
 	reqLogger.Info("Reconciling VerticalPodAutoscalerController")
@@ -400,10 +402,12 @@ func (r *VerticalPodAutoscalerControllerReconciler) UpdateAutoscaler(vpa *autosc
 
 	existingSpec := &existingDeployment.Spec.Template.Spec
 	expectedSpec := params.PodSpecMethod(r, vpa, params)
-	expectedReplicas := int32(1)
+	expectedReplicas := int32(1) // TODO: Should this be more than 1 by default for admission controller?
 	// disable the controller if it shouldn't be enabled
 	if !params.EnabledMethod(r, vpa) {
 		expectedReplicas = 0
+	} else if params.AppName == AdmissionControllerAppName && vpa.Spec.DeploymentOverrides.Admission.Replicas != nil {
+		expectedReplicas = *vpa.Spec.DeploymentOverrides.Admission.Replicas
 	}
 
 	// Only comparing podSpec, replicas and release version for now.
@@ -609,6 +613,8 @@ func (r *VerticalPodAutoscalerControllerReconciler) AutoscalerDeployment(vpa *au
 	// disable the controller if it shouldn't be enabled
 	if !params.EnabledMethod(r, vpa) {
 		replicas = 0
+	} else if params.AppName == AdmissionControllerAppName && vpa.Spec.DeploymentOverrides.Admission.Replicas != nil {
+		replicas = *vpa.Spec.DeploymentOverrides.Admission.Replicas
 	}
 
 	deployment := &appsv1.Deployment{

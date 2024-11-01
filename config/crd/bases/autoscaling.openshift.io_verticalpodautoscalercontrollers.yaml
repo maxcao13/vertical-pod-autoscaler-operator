@@ -124,6 +124,11 @@ spec:
                           Override the NodeSelector of the deployment's pod. This allows, for example, for the VPA controllers
                           to be run on non-master nodes
                         type: object
+                      replicas:
+                        description: Replicas is the number of desired replicas for
+                          the Admission deployment
+                        format: int32
+                        type: integer
                       tolerations:
                         description: |-
                           Override the Tolerations of the deployment's pod. This allows, for example, for the VPA controllers
@@ -412,7 +417,7 @@ spec:
                     type: object
                 type: object
               minReplicas:
-                format: int64
+                format: int32
                 minimum: 1
                 type: integer
               podMinCPUMillicores:
